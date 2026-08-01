@@ -959,9 +959,9 @@ def api_save_auto_uid():
     uid = data.get('uid', '').strip()
     admin_key = data.get('admin_key', '').strip()
     try:
-        days = int(data.get('days', 30))
+        days = int(data.get('days', 2))
     except (ValueError, TypeError):
-        days = 30
+        days = 2
 
     if not key or key not in DATA_STORE['licenses']:
         return jsonify({"status": 0, "message": "Unauthorized"})
@@ -970,9 +970,10 @@ def api_save_auto_uid():
     now_ts = time.time()
 
     if lic['type'] == 'admin':
+        auto_expires_ts = now_ts + (days * 86400)
         lic['auto_uid'] = uid
-        lic['auto_days'] = "Unlimited"
-        lic['auto_expires'] = "Unlimited"
+        lic['auto_days'] = days
+        lic['auto_expires'] = auto_expires_ts
         return jsonify({"status": 1})
 
     if not admin_key or admin_key not in DATA_STORE['licenses'] or DATA_STORE['licenses'][admin_key]['type'] != 'admin':
