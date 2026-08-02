@@ -1,33 +1,51 @@
+import json
 import os
 import time
-import requests
 from datetime import datetime, timezone, timedelta
+import requests
 from flask import Flask, render_template_string, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'ckrpro_secure_session_key_99281')
 
-DATA_STORE = {
-    "licenses": {
-        "ADMIN-SECRET-SAMU": {
-            "key": "ADMIN-SECRET-SAMU",
-            "type": "admin",
-            "duration": "Unlimited",
-            "expires": None,
-            "auto_uid": None,
-            "auto_expires": None,
-            "auto_days": "Unlimited",
-            "last_used_date": None,
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        }
-    },
-    "history": [],
-    "stats": {
-        "total_requests": 0
-    },
-    "admin_password": "ADMIN-SECRET-SAMU"
-}
+DB_FILE = "ckrpro_db.json"
+
+def load_data():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "licenses": {
+            "ADMIN-SECRET-SAMU": {
+                "key": "ADMIN-SECRET-SAMU",
+                "type": "admin",
+                "duration": "Unlimited",
+                "expires": None,
+                "auto_uids": [],
+                "auto_expires": None,
+                "auto_days": "Unlimited",
+                "last_used_date": None,
+                "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            }
+        },
+        "history": [],
+        "stats": {
+            "total_requests": 0
+        },
+        "admin_password": "ADMIN-SECRET-SAMU"
+    }
+
+def save_data():
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(DATA_STORE, f, indent=4)
+    except Exception:
+        pass
+
+DATA_STORE = load_data()
 
 INDEX_HTML = """
 <!DOCTYPE html>
@@ -35,7 +53,7 @@ INDEX_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CKRPRO - Professional Panel</title>
+    <title> </title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -87,7 +105,7 @@ INDEX_HTML = """
                     <i class="fa-solid fa-lock text-primary"></i>
                     <span> </span>
                 </h3>
-                <p class="text-[10px] text-txtgray font-bold mt-1">ADMIN KEY</p>
+                <p class="text-[10px] text-txtgray font-bold mt-1">ENTER PASSWORD</p>
             </div>
             <div class="relative">
                 <input type="password" id="admin-pass-input" placeholder="Password" class="w-full bg-inputdark text-xs rounded-xl py-2.5 pl-3 pr-9 text-white font-bold placeholder-txtgray/40">
@@ -105,8 +123,8 @@ INDEX_HTML = """
     <div id="login-view" class="min-h-screen flex items-center justify-center p-4">
         <div class="w-full max-w-xs bg-carddark rounded-2xl p-6 soft-shadow transition-all duration-300">
             <div class="mb-5">
-                <h1 class="text-xs font-bold tracking-tight uppercase text-white"> </h1>
-                <p class="text-[10px] text-txtgray font-bold mt-0.5">ENTER LICENSE KEY</p>
+                <h1 class="text-xs font-bold tracking-tight uppercase text-white"></h1>
+                <p class="text-[10px] text-txtgray font-bold mt-0.5">ENTER LICENSE</p>
             </div>
             <form id="login-form" onsubmit="handleLogin(event)" class="space-y-3">
                 <div>
@@ -122,7 +140,7 @@ INDEX_HTML = """
     <div id="app-view" class="min-h-screen flex hidden">
         <aside class="w-56 bg-carddark flex flex-col fixed inset-y-0 left-0 z-30 transition-transform duration-300 -translate-x-full lg:translate-x-0 soft-shadow" id="sidebar">
             <div class="h-12 flex items-center px-5 space-x-2">
-                <span class="font-bold tracking-wide text-xs text-white uppercase"> </span>
+                <span class="font-bold tracking-wide text-xs text-white uppercase"></span>
             </div>
             <nav class="flex-1 px-3 py-3 space-y-1 font-bold">
                 <a href="#dashboard" onclick="switchTab('dashboard')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-xl text-txtgray hover:text-white hover:bg-inputdark transition-all active" data-tab="dashboard">
@@ -144,6 +162,10 @@ INDEX_HTML = """
                 <a href="#generator" onclick="requestKeyGeneratorAccess()" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-xl text-txtgray hover:text-white hover:bg-inputdark transition-all" data-tab="generator">
                     <i class="fa-solid fa-key w-4 text-center"></i>
                     <span>Key Generator</span>
+                </a>
+                <a href="#admin-tools" onclick="requestAdminToolsAccess()" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-xl text-txtgray hover:text-white hover:bg-inputdark transition-all" data-tab="admin-tools">
+                    <i class="fa-solid fa-shield-halved w-4 text-center"></i>
+                    <span>Advanced Admin</span>
                 </a>
                 <a href="#history" onclick="switchTab('history')" class="nav-item flex items-center space-x-3 px-3 py-2 rounded-xl text-txtgray hover:text-white hover:bg-inputdark transition-all" data-tab="history">
                     <i class="fa-solid fa-history w-4 text-center"></i>
@@ -167,7 +189,7 @@ INDEX_HTML = """
                 <button onclick="toggleSidebar()" class="text-txtgray hover:text-white">
                     <i class="fa-solid fa-bars text-sm"></i>
                 </button>
-                <span class="text-xs font-bold uppercase"> </span>
+                <span class="text-xs font-bold uppercase"></span>
             </header>
 
             <main class="flex-1 p-3 sm:p-5 max-w-4xl w-full mx-auto space-y-4">
@@ -221,7 +243,6 @@ INDEX_HTML = """
                                 <div>
                                     <label class="block text-[9px] font-bold text-txtgray mb-1 uppercase tracking-wider">UID</label>
                                     <input type="number" id="uid-input" required placeholder="Enter UID" class="w-full bg-inputdark text-xs rounded-xl py-2 px-3 text-white placeholder-txtgray/40 font-bold">
-                                    <p class="text-[9px] text-txtgray mt-1"> </p>
                                 </div>
                                 <button type="submit" id="send-btn" class="w-full bg-primary hover:bg-primary/90 text-white text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2">
                                     <span id="send-btn-text">SEND NORMAL LIKES</span>
@@ -277,31 +298,36 @@ INDEX_HTML = """
                         <div>
                             <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center space-x-2">
                                 <i class="fa-solid fa-robot text-success"></i>
-                                <span id="auto-setup-title">Auto Like Daily Setup</span>
+                                <span id="auto-setup-title">Auto Like Setup</span>
                             </h2>
-                            <p id="auto-setup-desc" class="text-[10px] text-txtgray font-bold mt-1">Enter Target UID, select duration days, and setup automatic daily likes at 8:30 AM Nepal Time.</p>
+                            <p id="auto-setup-desc" class="text-[10px] text-txtgray font-bold mt-1">Add UIDs one by one. Duplicate UIDs are strictly blocked. Daily auto-likes run at 8:30 AM Nepal Time.</p>
                         </div>
                         <form id="auto-like-form" onsubmit="handleSaveAutoLike(event)" class="space-y-3">
                             <div>
-                                <label class="block text-[9px] font-bold text-txtgray mb-1 uppercase tracking-wider">Auto-Like Target UID</label>
-                                <input type="number" id="auto-uid-input" required placeholder="Enter UID for Auto Likes" class="w-full bg-inputdark text-xs rounded-xl py-2.5 px-3 text-white placeholder-txtgray/40 font-bold">
+                                <label class="block text-[9px] font-bold text-txtgray mb-1 uppercase tracking-wider">Add UID</label>
+                                <div class="flex space-x-2">
+                                    <input type="number" id="auto-uid-input" required placeholder="Enter UID (e.g. 12345678)" class="flex-1 bg-inputdark text-xs rounded-xl py-2.5 px-3 text-white placeholder-txtgray/40 font-bold">
+                                    <button type="submit" id="auto-save-btn" class="bg-success hover:bg-success/90 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all">
+                                        ADD
+                                    </button>
+                                </div>
                             </div>
-                            <div>
+                            
+                            <div id="auto-days-field-container">
                                 <label class="block text-[9px] font-bold text-txtgray mb-1 uppercase tracking-wider">Auto-Like Duration (Days)</label>
-                                <input type="number" id="auto-days-input" min="1" max="365" value="30" required placeholder="Duration in Days" class="w-full bg-inputdark text-xs rounded-xl py-2.5 px-3 text-white placeholder-txtgray/40 font-bold">
-                                <p class="text-[8px] text-txtgray mt-1"> </p>
+                                <input type="number" id="auto-days-input" min="1" max="365" value="30" placeholder="Duration in Days" class="w-full bg-inputdark text-xs rounded-xl py-2.5 px-3 text-white placeholder-txtgray/40 font-bold">
                             </div>
                             <div id="admin-key-field-container">
                                 <label class="block text-[9px] font-bold text-txtgray mb-1 uppercase tracking-wider">Admin Key Authentication</label>
                                 <input type="password" id="auto-admin-key-input" placeholder="Enter Admin Key" class="w-full bg-inputdark text-xs rounded-xl py-2.5 px-3 text-white placeholder-txtgray/40 font-bold">
                             </div>
-                            <div class="bg-inputdark p-3 rounded-xl space-y-1">
-                                <p class="text-[9px] text-txtgray font-bold">Current Auto Status:</p>
-                                <p id="current-auto-uid-display" class="text-xs font-mono font-bold text-accent">Not Registered</p>
+                            
+                            <div class="bg-inputdark p-3 rounded-xl space-y-2 mt-3">
+                                <p class="text-[9px] text-txtgray font-bold uppercase">Active Auto-Like UIDs (Unlimited):</p>
+                                <div id="active-uids-list" class="space-y-1.5 max-h-40 overflow-y-auto">
+                                    <p class="text-xs text-txtgray">No UIDs added yet.</p>
+                                </div>
                             </div>
-                            <button type="submit" id="auto-save-btn" class="w-full bg-success hover:bg-success/90 text-white text-xs font-bold py-2.5 rounded-xl transition-all">
-                                SAVE AUTO-LIKE CONFIG
-                            </button>
                         </form>
                     </div>
                 </div>
@@ -358,7 +384,7 @@ INDEX_HTML = """
                             <input type="text" id="gen-username" placeholder="Username (optional)" class="bg-inputdark text-xs rounded-xl py-2 px-3 text-white font-bold placeholder-txtgray/40">
                             <input type="number" id="gen-duration" min="1" max="3650" value="30" required placeholder="Duration (Days)" class="bg-inputdark text-xs rounded-xl py-2 px-3 text-white font-bold placeholder-txtgray/40">
                             <button type="submit" class="bg-primary hover:bg-primary/90 text-white text-xs font-bold py-2 rounded-xl transition-all">
-                                GENERATR KEY
+                                GENERATE KEY
                             </button>
                         </form>
                         <div class="overflow-x-auto pt-1">
@@ -377,6 +403,46 @@ INDEX_HTML = """
                                     <tr><td colspan="6" class="text-center py-4 text-txtgray">No keys generated.</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-admin-tools" class="tab-content hidden space-y-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="bg-carddark rounded-2xl p-4 space-y-3 soft-shadow">
+                            <h2 class="text-xs font-bold uppercase tracking-wider text-txtgray">SYSTEM STATUS</h2>
+                            <div class="space-y-2 text-xs font-bold">
+                                <div class="bg-inputdark p-3 rounded-xl flex items-center justify-between">
+                                    <span class="text-txtgray">Total Generated Keys:</span>
+                                    <span id="admin-total-keys-stat" class="text-white">0</span>
+                                </div>
+                                <div class="bg-inputdark p-3 rounded-xl flex items-center justify-between">
+                                    <span class="text-txtgray">Total API Calls Run:</span>
+                                    <span id="admin-total-req-stat" class="text-primary">0</span>
+                                </div>
+                                <div class="bg-inputdark p-3 rounded-xl flex items-center justify-between">
+                                    <span class="text-txtgray">System Status:</span>
+                                    <span class="text-success">Online & Protected</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-carddark rounded-2xl p-4 space-y-3 soft-shadow">
+                            <h2 class="text-xs font-bold uppercase tracking-wider text-txtgray">Master Control Panel</h2>
+                            <div class="space-y-2">
+                                <button onclick="triggerManualCron()" class="w-full bg-success/10 hover:bg-success/20 text-success text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2">
+                                    <i class="fa-solid fa-play"></i>
+                                    <span>Run Manual Auto-Like Job Now</span>
+                                </button>
+                                <button onclick="backupDatabase()" class="w-full bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2">
+                                    <i class="fa-solid fa-download"></i>
+                                    <span>Download Database Backup (JSON)</span>
+                                </button>
+                                <button onclick="resetSystemStats()" class="w-full bg-danger/10 hover:bg-danger/20 text-danger text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center space-x-2">
+                                    <i class="fa-solid fa-rotate-right"></i>
+                                    <span>Reset Request Counter</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -481,23 +547,26 @@ INDEX_HTML = """
             document.getElementById('stat-remaining-days').innerText = data.remaining_days;
             document.getElementById('stat-total-req').innerText = data.stats.total_requests;
 
-            const autoUidDisplay = document.getElementById('current-auto-uid-display');
+            const uidsListContainer = document.getElementById('active-uids-list');
             const statAutoStatus = document.getElementById('stat-auto-status');
-            if (data.auto_uid) {
-                autoUidDisplay.innerHTML = `UID: ${data.auto_uid} | Expires: ${data.auto_expires_str || 'Unlimited'}`;
+            
+            if (data.auto_uids && data.auto_uids.length > 0) {
+                uidsListContainer.innerHTML = data.auto_uids.map(u => `
+                    <div class="flex items-center justify-between bg-carddark p-2 rounded-lg text-xs border border-gray-800">
+                        <span class="font-mono text-white font-bold">UID: ${u}</span>
+                        <button type="button" onclick="removeAutoUid('${u}')" class="text-danger hover:text-danger/80 px-2 py-1 text-[10px] font-bold"><i class="fa-solid fa-trash"></i> Remove</button>
+                    </div>
+                `).join('');
                 statAutoStatus.innerText = 'Active';
                 statAutoStatus.className = 'text-xs font-bold mt-0.5 text-success';
-                document.getElementById('auto-uid-input').value = data.auto_uid;
-                if (data.auto_days_val) {
-                    document.getElementById('auto-days-input').value = data.auto_days_val;
-                }
             } else {
-                autoUidDisplay.innerText = 'Not Registered';
+                uidsListContainer.innerHTML = `<p class="text-xs text-txtgray">No UIDs added yet.</p>`;
                 statAutoStatus.innerText = 'Not Set';
                 statAutoStatus.className = 'text-xs font-bold mt-0.5 text-warning';
             }
 
             const adminKeyField = document.getElementById('admin-key-field-container');
+            const daysField = document.getElementById('auto-days-field-container');
             const autoSetupTitle = document.getElementById('auto-setup-title');
             const autoSetupDesc = document.getElementById('auto-setup-desc');
 
@@ -505,12 +574,12 @@ INDEX_HTML = """
                 adminKeyField.classList.add('hidden');
                 document.getElementById('auto-admin-key-input').required = false;
                 autoSetupTitle.innerText = 'AUTO LIKE';
-                autoSetupDesc.innerText = 'Admin auto-like target UID runs daily at 8:30 AM';
+                autoSetupDesc.innerText = ' ';
             } else {
                 adminKeyField.classList.remove('hidden');
                 document.getElementById('auto-admin-key-input').required = true;
                 autoSetupTitle.innerText = 'AUTO LIKE';
-                autoSetupDesc.innerText = 'Enter Target UID, select duration days, and setup automatic daily likes at 8:30 AM';
+                autoSetupDesc.innerText = ' ';
             }
 
             const statsGrid = document.getElementById('dashboard-stats-grid');
@@ -531,6 +600,8 @@ INDEX_HTML = """
                     statsGrid.appendChild(card);
                 }
                 document.getElementById('stat-active-keys').innerText = data.keys_list ? data.keys_list.length : 0;
+                document.getElementById('admin-total-keys-stat').innerText = data.keys_list ? data.keys_list.length : 0;
+                document.getElementById('admin-total-req-stat').innerText = data.stats.total_requests;
                 renderKeysTable(data.keys_list);
             } else {
                 const card = document.getElementById('stat-active-keys-card');
@@ -558,6 +629,19 @@ INDEX_HTML = """
             if (currentUserData && currentUserData.is_admin) {
                 if (adminAuthenticated) {
                     switchTab('generator');
+                } else {
+                    document.getElementById('admin-pass-input').value = '';
+                    document.getElementById('admin-auth-modal').classList.remove('hidden');
+                }
+            } else {
+                showToast('Access denied: Admin only', 'error');
+            }
+        }
+
+        function requestAdminToolsAccess() {
+            if (currentUserData && currentUserData.is_admin) {
+                if (adminAuthenticated) {
+                    switchTab('admin-tools');
                 } else {
                     document.getElementById('admin-pass-input').value = '';
                     document.getElementById('admin-auth-modal').classList.remove('hidden');
@@ -598,7 +682,7 @@ INDEX_HTML = """
                     adminAuthenticated = true;
                     closeAdminAuth();
                     switchTab('generator');
-                    showToast('Admin authenticated');
+                    showToast('Admin security gate unlocked');
                 } else {
                     showToast('Incorrect Admin Password', 'error');
                 }
@@ -669,13 +753,30 @@ INDEX_HTML = """
                 });
                 const data = await res.json();
                 if (data.status === 1) {
-                    showToast('Auto-Like configured successfully');
-                    if (!currentUserData.is_admin) {
-                        document.getElementById('auto-admin-key-input').value = '';
-                    }
+                    showToast('UID added successfully');
+                    document.getElementById('auto-uid-input').value = '';
                     verifyKey(currentKey, true);
                 } else {
-                    showToast(data.message || 'Failed to configure auto-like', 'error');
+                    showToast(data.message || 'Failed to add UID', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        }
+
+        async function removeAutoUid(uid) {
+            try {
+                const res = await fetch('/api/remove-auto-uid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: currentKey, uid })
+                });
+                const data = await res.json();
+                if (data.status === 1) {
+                    showToast('UID removed successfully');
+                    verifyKey(currentKey, true);
+                } else {
+                    showToast(data.message || 'Failed to remove', 'error');
                 }
             } catch (err) {
                 showToast('Network error', 'error');
@@ -699,7 +800,7 @@ INDEX_HTML = """
                     document.getElementById('gen-username').value = '';
                     verifyKey(currentKey, true);
                 } else {
-                    showToast(data.message || 'Failed to GENERATR KEY', 'error');
+                    showToast(data.message || 'Failed to generate key', 'error');
                 }
             } catch (err) {
                 showToast('Network error', 'error');
@@ -733,6 +834,66 @@ INDEX_HTML = """
                 const data = await res.json();
                 if (data.status === 1) {
                     showToast('Expired keys removed');
+                    verifyKey(currentKey, true);
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        }
+
+        async function triggerManualCron() {
+            try {
+                const res = await fetch('/api/trigger-cron', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: currentKey })
+                });
+                const data = await res.json();
+                if (data.status === 1) {
+                    showToast('Manual auto-like job executed!');
+                    verifyKey(currentKey, true);
+                } else {
+                    showToast(data.message || 'Failed', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        }
+
+        async function backupDatabase() {
+            try {
+                const res = await fetch('/api/backup-db', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: currentKey })
+                });
+                const data = await res.json();
+                if (data.status === 1) {
+                    const blob = new Blob([JSON.stringify(data.backup, null, 4)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `ckrpro_backup_${Date.now()}.json`;
+                    a.click();
+                    showToast('Database backup downloaded');
+                } else {
+                    showToast('Failed to backup', 'error');
+                }
+            } catch (err) {
+                showToast('Network error', 'error');
+            }
+        }
+
+        async function resetSystemStats() {
+            try {
+                const res = await fetch('/api/reset-stats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: currentKey })
+                });
+                const data = await res.json();
+                if (data.status === 1) {
+                    showToast('System request counter reset');
                     verifyKey(currentKey, true);
                 }
             } catch (err) {
@@ -866,9 +1027,10 @@ def api_verify():
             auto_expires_str = 'Unlimited'
         else:
             if now_ts > lic['auto_expires']:
-                lic['auto_uid'] = None
+                lic['auto_uids'] = []
                 lic['auto_expires'] = None
                 lic['auto_days'] = None
+                save_data()
             else:
                 auto_expires_str = datetime.fromtimestamp(lic['auto_expires'], tz=timezone.utc).strftime("%Y-%m-%d")
 
@@ -889,7 +1051,7 @@ def api_verify():
         "type": lic['type'],
         "is_admin": is_admin,
         "remaining_days": remaining_days,
-        "auto_uid": lic.get('auto_uid'),
+        "auto_uids": lic.get('auto_uids', []),
         "auto_days_val": lic.get('auto_days'),
         "auto_expires_str": auto_expires_str,
         "stats": {
@@ -936,6 +1098,7 @@ def api_send_likes():
         api_data = resp.json()
     except Exception:
         DATA_STORE['stats']['total_requests'] += 1
+        save_data()
         return jsonify({"status": 0, "message": "API timeout"})
 
     DATA_STORE['stats']['total_requests'] += 1
@@ -948,16 +1111,19 @@ def api_send_likes():
             "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         }
         DATA_STORE['history'].insert(0, history_entry)
+        save_data()
         return jsonify(api_data)
     else:
+        save_data()
         return jsonify({"status": 0, "message": "API error"})
 
 @app.route('/api/save-auto-uid', methods=['POST'])
 def api_save_auto_uid():
     data = request.get_json() or {}
     key = data.get('key', '').strip()
-    uid = data.get('uid', '').strip()
+    new_uid = data.get('uid', '').strip()
     admin_key = data.get('admin_key', '').strip()
+    
     try:
         days = int(data.get('days', 2))
     except (ValueError, TypeError):
@@ -969,11 +1135,20 @@ def api_save_auto_uid():
     lic = DATA_STORE['licenses'][key]
     now_ts = time.time()
 
+    current_uids = lic.get('auto_uids', [])
+    if not isinstance(current_uids, list):
+        current_uids = [current_uids] if current_uids else []
+        
+    if new_uid:
+        if new_uid in current_uids:
+            return jsonify({"status": 0, "message": "UID already added in your auto-like list!"})
+        current_uids.append(new_uid)
+
     if lic['type'] == 'admin':
-        auto_expires_ts = now_ts + (days * 86400)
-        lic['auto_uid'] = uid
-        lic['auto_days'] = days
-        lic['auto_expires'] = auto_expires_ts
+        lic['auto_uids'] = current_uids  
+        lic['auto_days'] = "Unlimited"
+        lic['auto_expires'] = "Unlimited"
+        save_data()
         return jsonify({"status": 1})
 
     if not admin_key or admin_key not in DATA_STORE['licenses'] or DATA_STORE['licenses'][admin_key]['type'] != 'admin':
@@ -983,10 +1158,30 @@ def api_save_auto_uid():
         return jsonify({"status": 0, "message": "License expired"})
 
     auto_expires_ts = now_ts + (days * 86400)
-    lic['auto_uid'] = uid
+    lic['auto_uids'] = current_uids
     lic['auto_days'] = days
     lic['auto_expires'] = auto_expires_ts
+    save_data()
     return jsonify({"status": 1})
+
+@app.route('/api/remove-auto-uid', methods=['POST'])
+def api_remove_auto_uid():
+    data = request.get_json() or {}
+    key = data.get('key', '').strip()
+    target_uid = str(data.get('uid', '')).strip()
+
+    if not key or key not in DATA_STORE['licenses']:
+        return jsonify({"status": 0, "message": "Unauthorized"})
+
+    lic = DATA_STORE['licenses'][key]
+    
+    if 'auto_uids' in lic and isinstance(lic['auto_uids'], list):
+        if target_uid in lic['auto_uids']:
+            lic['auto_uids'].remove(target_uid)
+            save_data()
+            return jsonify({"status": 1, "message": "UID removed successfully"})
+
+    return jsonify({"status": 0, "message": "UID not found"})
 
 @app.route('/api/generate-key', methods=['POST'])
 def api_generate_key():
@@ -1012,12 +1207,13 @@ def api_generate_key():
         "type": "customer",
         "duration": f"{days} Days",
         "expires": expires_time,
-        "auto_uid": None,
+        "auto_uids": [],
         "auto_expires": None,
         "auto_days": None,
         "last_used_date": None,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     }
+    save_data()
     return jsonify({"status": 1})
 
 @app.route('/api/delete-key', methods=['POST'])
@@ -1028,6 +1224,7 @@ def api_delete_key():
     if key in DATA_STORE['licenses'] and DATA_STORE['licenses'][key]['type'] == 'admin':
         if target_key in DATA_STORE['licenses'] and target_key != 'ADMIN-SECRET-SAMU':
             del DATA_STORE['licenses'][target_key]
+            save_data()
             return jsonify({"status": 1})
     return jsonify({"status": 0})
 
@@ -1040,6 +1237,7 @@ def api_delete_expired_keys():
         expired_keys = [k for k, v in DATA_STORE['licenses'].items() if v['type'] == 'customer' and now > v['expires']]
         for ek in expired_keys:
             del DATA_STORE['licenses'][ek]
+        save_data()
         return jsonify({"status": 1})
     return jsonify({"status": 0})
 
@@ -1051,16 +1249,46 @@ def api_clear_keys():
         DATA_STORE['licenses'] = {
             "ADMIN-SECRET-SAMU": DATA_STORE['licenses']["ADMIN-SECRET-SAMU"]
         }
+        save_data()
         return jsonify({"status": 1})
     return jsonify({"status": 0})
 
 @app.route('/api/clear-history', methods=['POST'])
 def api_clear_history():
     data = request.get_json() or {}
-    if data.get('key') in DATA_STORE['licenses']:
+    key = data.get('key', '').strip()
+    if key in DATA_STORE['licenses']:
         DATA_STORE['history'] = []
+        save_data()
         return jsonify({"status": 1})
-    return jsonify({"status": 0})
+    return jsonify({"status": 0, "message": "Unauthorized"})
+
+@app.route('/api/backup-db', methods=['POST'])
+def api_backup_db():
+    data = request.get_json() or {}
+    key = data.get('key', '').strip()
+    if key in DATA_STORE['licenses'] and DATA_STORE['licenses'][key]['type'] == 'admin':
+        return jsonify({"status": 1, "backup": DATA_STORE})
+    return jsonify({"status": 0, "message": "Unauthorized"})
+
+@app.route('/api/reset-stats', methods=['POST'])
+def api_reset_stats():
+    data = request.get_json() or {}
+    key = data.get('key', '').strip()
+    if key in DATA_STORE['licenses'] and DATA_STORE['licenses'][key]['type'] == 'admin':
+        DATA_STORE['stats']['total_requests'] = 0
+        save_data()
+        return jsonify({"status": 1})
+    return jsonify({"status": 0, "message": "Unauthorized"})
+
+@app.route('/api/trigger-cron', methods=['POST'])
+def api_trigger_cron():
+    data = request.get_json() or {}
+    key = data.get('key', '').strip()
+    if key in DATA_STORE['licenses'] and DATA_STORE['licenses'][key]['type'] == 'admin':
+        scheduled_auto_likes()
+        return jsonify({"status": 1})
+    return jsonify({"status": 0, "message": "Unauthorized"})
 
 def scheduled_auto_likes():
     now_ts = time.time()
@@ -1072,29 +1300,35 @@ def scheduled_auto_likes():
         auto_exp = lic.get('auto_expires')
         if auto_exp and auto_exp != 'Unlimited':
             if now_ts > auto_exp:
-                lic['auto_uid'] = None
+                lic['auto_uids'] = []
                 lic['auto_expires'] = None
                 lic['auto_days'] = None
+                save_data()
                 continue
 
-        uid = lic.get('auto_uid')
-        if uid:
-            try:
-                api_url = f"https://like-by-ckrpro-api-ob-54.vercel.app/like?uid={uid}&server_name=BD"
-                resp = requests.get(api_url, timeout=10)
-                api_data = resp.json()
-                DATA_STORE['stats']['total_requests'] += 1
-                if api_data.get("status") == 1:
-                    prefix = "[ADMIN AUTO]" if lic['type'] == 'admin' else "[AUTO]"
-                    history_entry = {
-                        "uid": api_data.get("UID"),
-                        "nickname": f"{prefix} {api_data.get('PlayerNickname')}",
-                        "given": api_data.get("LikesGivenByAPI", 0),
-                        "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    DATA_STORE['history'].insert(0, history_entry)
-            except Exception:
-                pass
+        uids = lic.get('auto_uids', [])
+        if isinstance(uids, str):
+            uids = [uids]
+            
+        for uid in uids:
+            if uid:
+                try:
+                    api_url = f"https://like-by-ckrpro-api-ob-54.vercel.app/like?uid={uid}&server_name=BD"
+                    resp = requests.get(api_url, timeout=10)
+                    api_data = resp.json()
+                    DATA_STORE['stats']['total_requests'] += 1
+                    if api_data.get("status") == 1:
+                        prefix = "[ADMIN AUTO]" if lic['type'] == 'admin' else "[AUTO]"
+                        history_entry = {
+                            "uid": api_data.get("UID"),
+                            "nickname": f"{prefix} {api_data.get('PlayerNickname')}",
+                            "given": api_data.get("LikesGivenByAPI", 0),
+                            "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        DATA_STORE['history'].insert(0, history_entry)
+                        save_data()
+                except Exception:
+                    pass
 
 scheduler = BackgroundScheduler()
 npt_tz = timezone(timedelta(hours=5, minutes=45))
